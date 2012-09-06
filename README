@@ -1,0 +1,183 @@
+Dead Air Alarm v 0.3 by Thomas Preece
+http://tpreece.net
+thomas@tpreece.net
+
+DESCRIPTION
+===========
+
+This is a simple tool for detecting when you have dead air in your 
+broadcast. It can be set to notify another process using POSIX signals 
+when there is dead air (this plugs in nicely to my "Infoscreen" 
+program), and can also be set to trip after a certain amount of silence 
+(this could be used to trigger a backup tape). Despite the name, it only 
+does dead air detection; actually raising an alarm can be done by other 
+programs.
+
+USAGE INSTRUCTIONS
+==================
+
+This software is intended primarily for use by student, community and 
+other low-budget radio stations who can't afford professional monitoring 
+equipment. Please note the "no warranty" clause in the licence - this 
+means that if this software fails for whatever reason and you have 
+prolonged dead air, you can't hold me responsible or sue me for this. 
+You will probably only want to use this software if it's a choice 
+between this and nothing at all: if you work for a big professional 
+station and an undetected dead air condition will get you in trouble or 
+cause your organisation to lose lots of money, you can probably afford 
+the professional equipment anyway - please use it. Otherwise, please 
+read on.
+
+Start by setting up the hardware. Find a computer (probably a server) 
+that you want the software to run on and make sure it has a spare sound 
+card in it. It doesn't have to be a particularly good sound card - we 
+don't care about the quality of the audio, just whether there is audio 
+present or not. The program needs a dedicated sound card, unless you 
+want to do something clever with PulseAudio or something to route audio 
+to multiple places. But that's not recommended; a cheap consumer sound 
+card isn't expensive, and keeping the number of software layers down 
+will help reliability.
+
+Hook up a feed of your station's output to this sound card's line in. 
+Again, the quality doesn't have to be particularly good: a typical set 
+up could be something as simple as a crude unbalancer built of two 
+transformers on a bit of veroboard connected via a 3.5mm jack to the 
+sound card. As long as the signal to noise ratio is reasonable, or at 
+the very least silence is very quiet compared to signal, you should be 
+fine even if the quality is a bit wonky.
+
+Make sure the sound card works in ALSA - you can use arecord to make 
+some test recordings from the line input and make sure that the input 
+level is reasonable. It wants to be as loud as possible, ideally without 
+distorting. However it's more important that the silence is silent than 
+that the signal isn't distorted.
+
+Now open up daalarm.c and have a look at the configuration options near 
+the beginning of the file. These options are compiled into the program - 
+if you need to change them, you'll have to recompile. If in doubt, leave 
+them as they are, and tweak them if it doesn't work.
+
+The most important option is DEVICE - this is the ALSA device that the 
+program should listen on. If you've only got one sound card in the 
+machine, this shouldn't need changing. It's probably best to leave the 
+sample rate, channels and frame size as they are, unless you know you 
+need other values.
+
+The second section you might want to customise. SECONDS_TRIP and 
+SECONDS_NOTIFY specify how much continuous dead air is required before 
+the program will notify the Infoscreen (or other process) and trip 
+outright. These times are approximate, as they are rounded to an integer 
+number of frames.
+
+THRESHOLD specifies the maximum absolute value of a sample to consider 
+it silence, and THRESHOLD_SAMPLES the minimum number of samples in a 
+frame that must be silent for the frame to be considered silence. The 
+default values of 100 and 900 (out of 1024) seem to work well in most 
+cases - you'll probably see the occasional false positive silent frame, 
+but that's not a problem, because it needs a large number of consecutive 
+silent frames before it trips. False negative silent frames are a bigger 
+issue, as even one will reset the counter.
+
+You can build the program by typing make. In Ubuntu you'll need to 
+install the packages build-essential and libasound-dev to get all the 
+relevant tools and libraries. Then you can run it by typing ./daalarm
+
+There are two runtime options:
+
+-t will cause the dead air alarm to trip after the configured timeout 
+(by default approximately 30 seconds)
+
+-p <pid> will cause the dead air alarm to notify the specified process 
+ID when there is dead air
+
+Don't worry about these for now; get the detection working first.
+
+After the welcome message and configuration, you will see that the 
+program prints one character for each frame of audio, as follows:
+
+. indicates that there is audio; this is good, and what you generally 
+want
+
+O indicates that there is silence, and the notify timeout hasn't passed 
+yet
+
+! indicates that there is silence, and the notify timeout has passed
+
+You'll need to play with the input levels in the hardware and in 
+alsa-mixer until you get it to the point that normal signal level 
+reliably produces consistent indications of signal and silence produces 
+continuous Os and !s. If there's even a single frame that's reported as 
+signal during a silence period, the counter will be reset, so if you 
+can't get it completely consistent it's better to have an occasional 
+false positive silence than any false negative silences. If you can't 
+get it to work by adjusting the input level, try adjusting the constants 
+in the source and recompiling.
+
+Once the detection is working, you can look at setting up alarms. If you 
+specify option -t, the alarm will trip after the configured timeout. 
+When the alarm trips, it will terminate with an exit code of 1. You 
+should wrap the program in a shell script that detects the exit code and 
+performs whatever action you want to be performed when the alarm trips, 
+such as switching to a backup tape or other source. How you do this is 
+your own problem, and will depend on your station's setup. You should 
+probably then restart the alarm once you've done this.
+
+If you specify option -p, you will give the program a process ID of 
+another process that is to be notified of dead air. This is done by 
+sending a SIGUSR1 at the beginning of a dead air condition (after a 
+timeout, by default 5 seconds), and a SIGUSR2 at the end of the dead air 
+condition. If the process ID you want to notify changes, you need to 
+kill and restart daalarm; there's currently no way to change it at 
+runtime. This is intended to work with my Infoscreen program - it's 
+exactly the method that Infoscreen expects for dead air notification - 
+however you could also use it with any other program of your choice. You 
+might want to write a program that will keep a log of all cases of dead 
+air, for example.
+
+There's no specific "install" procedure for this program; you can run it 
+straight out of the directory you built it in, or you can copy it to 
+/usr/bin or any other location on your $PATH, if you want.
+
+Note that this program will output to the console continuously while it 
+is running. This allows you to see at a glance whether it is working 
+correctly or not. However, for normal usage you will probably want it to 
+run in the background without needing to keep a terminal open. The best 
+option for this is to run it in GNU screen: ssh in to your server and 
+type "screen"; this will open a screen session, and you can run daalarm 
+in this session. Then press Ctrl+A followed by D to detach the screen 
+(you can reattach it by running screen -r); this allows you to log off 
+while leaving the program running.
+
+BUGS AND TODO
+=============
+
+It would be useful if more of the options could be specified / 
+overridden at runtime.
+
+LICENCE
+=======
+
+Copyright (c) 2009 - 2012 Thomas Preece
+
+You may freely use this software under the conditions of the MIT licence 
+- see the LICENCE file for details.
+
+SUPPORT / CONTACT
+=================
+
+No formal technical support is available for this software, however I am 
+generally happy to answer questions and provide some assistance with 
+setting it up; if you need help, please don't hesitate to contact me. I 
+always like hearing from users of my software, and would be very 
+appreciative to hear from anyone who is using this software and finds it 
+useful, especially if you're using it in a live broadcast environment. I 
+also welcome patches for bugfixes and new features in the usual git 
+format.
+
+VERSION HISTORY
+===============
+
+v 0.3 (2012-09-03) - first published version
+
+v 0.1, 0.2 - unpublished versions
+
